@@ -73,7 +73,14 @@ router = Router(name="guest")
 
 
 def _is_off_hours(settings: Settings) -> bool:
-    now = datetime.now(ZoneInfo(settings.timezone))
+    try:
+        tz = ZoneInfo(settings.timezone)
+    except Exception:
+        # На сервере может не быть tzdata — фолбэк на московское время (UTC+3)
+        from datetime import timedelta, timezone
+
+        tz = timezone(timedelta(hours=3))
+    now = datetime.now(tz)
     return not is_working_hours(
         now, settings.delivery_start_hour, settings.delivery_end_hour
     )

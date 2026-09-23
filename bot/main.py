@@ -21,6 +21,16 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+# В Docker stdout часто буферизуется — принудительно сбрасываем, чтобы логи
+# появлялись на хостинге сразу, а не после завершения процесса
+for _handler in logging.getLogger().handlers:
+    if hasattr(_handler, "reconfigure"):
+        try:
+            _handler.reconfigure(line_buffering=True)
+        except Exception:
+            pass
+logging.getLogger().setLevel(logging.INFO)
+print("Logging configured", flush=True)
 logger = logging.getLogger(__name__)
 
 
@@ -59,6 +69,24 @@ async def _setup_commands(bot: Bot, settings) -> None:
 
 async def main() -> None:
     settings = load_settings()
+
+    # Диагностика старта: сразу видно, что подхватилось из окружения
+    token_tail = settings.bot_token[-5:] if settings.bot_token else ""
+    logger.info(
+        "Config: token=...%s staff_chat=%s admins=%s db=%s tz=%s hours=%s-%s",
+        token_tail,
+        settings.staff_chat_id or "NOT SET",
+        sorted(settings.admin_ids) or "NOT SET",
+        settings.database_path,
+        settings.timezone,
+        settings.delivery_start_hour,
+        settings.delivery_end_hour,
+    )
+    if not settings.staff_chat_id:
+        logger.warning("STAFF_CHAT_ID is not set — заказы не смогут уходить в группу")
+    if not settings.admin_ids:
+        logger.warning("ADMIN_IDS is not set — админ-панель недоступна")
+
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
@@ -104,11 +132,15 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.info("Bot stopped")
     except KeyError as exc:
-        logger.error("Missing required environment variable: %s", exc)
+        logger.error(
+            "Missing required environment variable: %s. "
+            "Проверьте, что переменная задана в настройках хостинга.",
+            exc,
+        )
         raise SystemExit(1) from exc
     except ValueError as exc:
         logger.error("Invalid environment variable format: %s", exc)
         raise SystemExit(1) from exc
     except Exception:
         logger.exception("Bot failed to start")
-        raise
+        raise SystemExit(1)
