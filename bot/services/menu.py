@@ -7,14 +7,15 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import FSInputFile, InputMediaPhoto, Message
 
-from bot.config import BASE_DIR
 from bot.database.db import Database
 from bot.database.models import Address
 from bot.texts import MENU_UNAVAILABLE, SENDING_MENU
 
 logger = logging.getLogger(__name__)
 
-LOCAL_MENU_DIR = BASE_DIR / "data" / "menu"
+# Файлы лежат внутри пакета бота, а не в data/ — хостинг монтирует volume
+# поверх data/ (там живёт bot.db), и файлы из data/menu были бы недоступны.
+LOCAL_MENU_DIR = Path(__file__).resolve().parent.parent / "assets" / "menu"
 
 # Локальные фото меню по адресу кофейни — пока file_id не загружены через /setmenu
 LOCAL_MENU_FILES = {
@@ -27,9 +28,22 @@ LOCAL_MENU_FILES = {
 def _local_menu_path(address: Address) -> Path | None:
     name = LOCAL_MENU_FILES.get(address.full_name)
     if not name:
+        logger.warning(
+            "No local menu mapping for address %r (id=%s)",
+            address.full_name,
+            address.id,
+        )
         return None
     path = LOCAL_MENU_DIR / name
-    return path if path.is_file() else None
+    if not path.is_file():
+        logger.warning(
+            "Menu file missing: %s (dir exists: %s, contents: %s)",
+            path,
+            LOCAL_MENU_DIR.is_dir(),
+            [p.name for p in LOCAL_MENU_DIR.iterdir()] if LOCAL_MENU_DIR.is_dir() else "dir not found",
+        )
+        return None
+    return path
 
 
 async def send_menu_for_address(
@@ -53,9 +67,15 @@ async def send_menu_for_address(
                     caption=caption,
                     parse_mode="HTML",
                 )
+                logger.info("Sent local menu %s to chat %s", local.name, chat_id)
                 return True
             except TelegramBadRequest:
                 logger.exception("Failed to send local menu for address %s", address.id)
+        logger.warning(
+            "Menu unavailable for address %s (id=%s): no DB images and no local file",
+            address.full_name,
+            address.id,
+        )
         await bot.send_message(chat_id=chat_id, text=MENU_UNAVAILABLE)
         return False
     file_ids = [item.file_id for item in images]

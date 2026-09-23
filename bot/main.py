@@ -87,6 +87,17 @@ async def main() -> None:
     if not settings.admin_ids:
         logger.warning("ADMIN_IDS is not set — админ-панель недоступна")
 
+    # Проверка файлов меню на старте — сразу видно в логах хостинга
+    from bot.services.menu import LOCAL_MENU_DIR, LOCAL_MENU_FILES
+
+    if LOCAL_MENU_DIR.is_dir():
+        present = {p.name for p in LOCAL_MENU_DIR.iterdir()}
+        for addr_name, filename in LOCAL_MENU_FILES.items():
+            status = "OK" if filename in present else "MISSING"
+            logger.info("Menu file %s: %s", filename, status)
+    else:
+        logger.warning("Menu dir not found: %s", LOCAL_MENU_DIR)
+
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
