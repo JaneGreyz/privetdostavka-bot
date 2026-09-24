@@ -204,6 +204,10 @@ async def start_order(
         )
         return
 
+    # Рабочее время: полностью сбрасываем состояние, чтобы не остался
+    # флаг off_hours от вчерашнего сценария вне часов
+    await state.clear()
+
     profile = await db.get_guest_profile(message.from_user.id)
     if profile:
         address = await db.get_address_by_id(profile.address_id)
@@ -372,6 +376,7 @@ async def choose_address(
     callback: CallbackQuery,
     state: FSMContext,
     db: Database,
+    settings: Settings,
 ) -> None:
     if not callback.data or not isinstance(callback.message, Message):
         return
@@ -382,8 +387,9 @@ async def choose_address(
         await callback.answer("Адрес недоступен", show_alert=True)
         return
 
-    data = await state.get_data()
-    if data.get("off_hours"):
+    # Часы проверяем ЗДЕСЬ и сейчас — не доверяем флагу из состояния,
+    # который мог остаться от вчерашнего дня (MemoryStorage живёт до рестарта)
+    if _is_off_hours(settings):
         await send_menu_for_address(
             callback.message.bot,
             db,
